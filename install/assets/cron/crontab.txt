@@ -1,0 +1,1 @@
+0 0 * * * /assets/scripts/adblock.sh > /var/run/unbound-ads.conf && unbound-control -c /var/unbound/unbound.conf reload

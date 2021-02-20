@@ -1,0 +1,128 @@
+#!/usr/bin/with-contenv bash
+
+create_configuration() {
+        print_notice "Configuring Unbound"
+        mkdir -p "${CONFIG_PATH}"conf.d
+        chown -R "${UNBOUND_USER}" "${CONFIG_PATH}"
+
+        if [ ! -f "${ROOT_HINTS}" ] ; then
+            print_notice "Downloading Root Hints"
+            sudo -u "${UNBOUND_USER}" curl ftp://ftp.internic.net/domain/named.cache > "${ROOT_HINTS}"
+        else
+            if [[ $(find "$ROOT_HINTS" -mtime +30 -print) ]] ;  then
+                print_notice "Root Hints are older than 30 days - Refreshing"
+                sudo -u "${UNBOUND_USER}" curl ftp://ftp.internic.net/domain/named.cache > "${ROOT_HINTS}"
+            fi
+        fi
+
+        unbound-control-setup -d /config
+
+	if [ "$SETUP_TYPE" = "AUTO" ]; then
+
+        truefalse_yesno DENY_ANY
+        truefalse_yesno ENABLE_IPV4
+        truefalse_yesno ENABLE_IPV6
+        truefalse_yesno ENABLE_TCP
+        truefalse_yesno ENABLE_UDP
+        truefalse_yesno HARDEN_DNSSEC_STRIPPED
+        truefalse_yesno HARDEN_GLUE
+        truefalse_yesno HARDEN_LARGE_QUERIES
+        truefalse_yesno HARDEN_SHORT_BUFFER_SIZE
+        truefalse_yesno MINIMAL_RESPONSES
+        truefalse_yesno NO_QUERY_LOCALHOST
+        truefalse_yesno LOG_QUERIES
+        truefalse_yesno LOG_REPLIES
+        truefalse_yesno LOG_SERVFAIL
+        truefalse_yesno LOG_TIME_ASCII
+        truefalse_yesno PREFETCH
+        truefalse_yesno PREFETCH_KEY
+        truefalse_yesno QNAME_MINIMIZATION
+        truefalse_yesno RRSET_ROUNDROBIN
+        truefalse_yesno SO_REUSE_PORT
+        truefalse_yesno STATISTICS_CUMULATIVE
+        truefalse_yesno STATISTICS_EXTENDED
+
+		sudo -u "${UNBOUND_USER}" cat << EOF > "${CONFIG_PATH}""${CONFIG_FILE}"
+## Custom Generated Unbound Configuration! Do not edit, instead set ENV Vars
+## If you want to use your own configuration files set SETUP_TYPE=MANUAL when starting container
+## Last Generated on $(date)
+
+server:
+    access-control: 0.0.0.0/0 allow
+    cache-max-negative-ttl: ${CACHE_TTL_MAX_NEGATIVE}
+    cache-max-ttl: ${CACHE_TTL_MAX}
+    cache-min-ttl: ${CACHE_TTL_MIN}
+    deny-any: ${DENY_ANY}
+    do-ip4: ${ENABLE_IPV4}
+    do-ip6: ${ENABLE_IPV6}
+    do-not-query-localhost: ${NO_QUERY_LOCALHOST}
+    do-tcp: ${ENABLE_TCP}
+    do-udp: ${ENABLE_UDP}
+    edns-buffer-size: ${CACHE_SIZE_EDNS}
+    extended-statistics: ${STATISTICS_EXTENDED}
+    harden-dnssec-stripped: ${HARDEN_DNSSEC_STRIPPED}
+    harden-glue: ${HARDEN_GLUE}
+    harden-large-queries: ${HARDEN_LARGE_QUERIES}
+    harden-short-bufsize: ${HARDEN_SHORT_BUFFER_SIZE}
+    interface: ${LISTEN_IP}
+    logfile: "${logfile}"
+    log-queries: ${LOG_QUERIES}
+    log-replies: ${LOG_REPLIES}
+    log-servfail: ${LOG_SERVFAIL}
+    log-time-ascii: ${LOG_TIME_ASCII}
+    minimal-responses: ${MINIMAL_RESPONSES}
+    msg-buffer-size: ${BUFFER_SIZE_MSG}
+    msg-cache-size: ${CACHE_SIZE_MSG}
+    msg-cache-slabs: ${CACHE_SLABS_MSG}
+    num-queries-per-thread: ${THREADS_QUERIES_PER}
+    outgoing-port-permit: "${ACCESS_CONTROL_OUTGOING_PORT_PERMIT}"
+    pidfile: "/var/run/unbound.pid"
+    port: ${LISTEN_PORT}
+    prefetch: ${PREFETCH}
+    prefetch-key: ${PREFETCH_KEY}
+    qname-minimisation: ${QNAME_MINIMIZATION}
+    root-hints: ${ROOT_HINTS}
+    so-reuseport: ${SO_REUSE_PORT}
+    statistics-cumulative: ${STATISTICS_CUMULATIVE}
+    statistics-interval: ${STATISTICS_INTERVAL}
+    target-fetch-policy: "${TARGET_FETCH_POLICY}"
+    username: ${UNBOUND_USER}
+    verbosity: ${LOG_LEVEL}
+
+    include: ${CONFIG_PATH}conf.d/*.conf
+EOF
+	fi
+}
+
+configure_logging() {
+        print_debug "Configuring Logging"
+        if [ "$LOG_TYPE" = "FILE" ] || [ "$LOG_TYPE" = "file" ] ; then
+            mkdir -p "${LOG_PATH}"
+            chown -R "${UNBOUND_USER}": "${LOG_PATH}"
+            sed -i "s#<LOG_LOCATION>#${LOG_PATH}#g" /etc/logrotate.d/unbound
+            sed -i "s#<LOG_FILE>#${LOG_FILE}#g" /etc/logrotate.d/unbound
+            logfile="${LOG_PATH}""${LOG_FILE}"
+        else
+            rm -rf /etc/logrotate.d/unbound
+            logfile=""
+        fi
+
+        ### Translate Logging
+        case "$LOG_LEVEL" in
+            "DETAILED" | "detailed" | "2" )
+                LOG_LEVEL=2
+            ;;
+            "QUERY" | "query" | "3" )
+                LOG_LEVEL=3
+            ;;
+            "ERROR" | "error" | "err" | "0" )
+                LOG_LEVEL=0
+            ;;
+            "ALGORITHM" | "algorithm" | "4" )
+                LOG_LEVEL=4
+            ;;
+            "CLIENT" | "client" | "5" )
+                LOG_LEVEL=5
+            ;;
+        esac
+}
